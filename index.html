@@ -24,6 +24,32 @@
         </div>
       </section>
 
+      <section class="location-section" aria-labelledby="location-title">
+        <div class="location-copy">
+          <div>
+            <p class="eyebrow">HELP PEOPLE FIND YOU</p>
+            <h2 id="location-title">Your spot in the room</h2>
+            <p class="location-instructions">Tap the map to place or move your pin. This is a spot you choose; LinkUp does not use your phone’s GPS.</p>
+          </div>
+          <div class="location-actions">
+            <span id="location-status" class="location-status" aria-live="polite">No pin placed yet</span>
+            <button id="clear-location" class="clear-location" type="button" hidden>Clear pin</button>
+          </div>
+        </div>
+        <div id="room-map" class="room-map" role="application" aria-label="Room map. Tap or click to place your location pin.">
+          <div class="map-zone zone-lounge">LOUNGE</div>
+          <div class="map-zone zone-snacks">SNACKS</div>
+          <div class="map-zone zone-entry">ENTRY</div>
+          <div class="map-stage">WELCOME</div>
+          <div class="map-table table-one"></div>
+          <div class="map-table table-two"></div>
+          <div class="map-table table-three"></div>
+          <button id="your-pin" class="your-pin" type="button" aria-label="Your location pin" title="Your location">
+            <span>A</span>
+          </button>
+        </div>
+      </section>
+
       <section class="people-section" aria-labelledby="people-title">
         <div class="section-heading">
           <div>

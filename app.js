@@ -6,6 +6,7 @@ const attendees = [
   { name: 'Leo Martin', role: 'Product intern · 4th year', note: 'Happy to chat about getting your first internship in tech.', interests: ['Startups', 'Career'], color: 'yellow' },
   { name: 'Nina Okafor', role: 'Illustrator · 1st year', note: 'Sketchbook is always open. Currently learning motion design.', interests: ['Design', 'Creative'], color: 'rose' },
   { name: 'Dev Shah', role: 'Robotics club · 3rd year', note: 'Prototyping a low-cost robot arm and looking for collaborators.', interests: ['Coding', 'Robotics'], color: 'mint' },
+  { name:'Advik Ganapathy',role:'AI/ML Enthusiast · 1st year',note:'Prototyping a walking spider robot',interests:['Coding','Music'],color:'peach'}
 ];
 
 const grid = document.querySelector('#attendee-grid');
@@ -13,7 +14,44 @@ const searchInput = document.querySelector('#search-input');
 const filters = document.querySelector('#filters');
 const count = document.querySelector('#attendee-count');
 const emptyState = document.querySelector('#empty-state');
+const roomMap = document.querySelector('#room-map');
+const yourPin = document.querySelector('#your-pin');
+const locationStatus = document.querySelector('#location-status');
+const clearLocationButton = document.querySelector('#clear-location');
 let selectedInterest = 'All';
+
+const savedLocation = localStorage.getItem('linkup-room-pin');
+
+function showPin(x, y) {
+  yourPin.style.left = `${x}%`;
+  yourPin.style.top = `${y}%`;
+  yourPin.hidden = false;
+  locationStatus.textContent = 'Your pin is visible on this device';
+  clearLocationButton.hidden = false;
+}
+
+if (savedLocation) {
+  const { x, y } = JSON.parse(savedLocation);
+  showPin(x, y);
+} else {
+  yourPin.hidden = true;
+}
+
+roomMap.addEventListener('click', (event) => {
+  const bounds = roomMap.getBoundingClientRect();
+  const x = Math.min(96, Math.max(4, ((event.clientX - bounds.left) / bounds.width) * 100));
+  const y = Math.min(91, Math.max(22, ((event.clientY - bounds.top) / bounds.height) * 100));
+  showPin(x, y);
+  localStorage.setItem('linkup-room-pin', JSON.stringify({ x, y }));
+});
+
+clearLocationButton.addEventListener('click', (event) => {
+  event.stopPropagation();
+  localStorage.removeItem('linkup-room-pin');
+  yourPin.hidden = true;
+  clearLocationButton.hidden = true;
+  locationStatus.textContent = 'No pin placed yet';
+});
 
 const interests = ['All', ...new Set(attendees.flatMap((person) => person.interests))];
 
