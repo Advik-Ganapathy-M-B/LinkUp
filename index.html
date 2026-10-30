@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#f7f7f2" />
+    <title>LinkUp — find your people</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="#" aria-label="LinkUp home"><span class="brand-mark">L</span>linkup</a>
+      <span class="event-label"><span class="live-dot"></span> LIVE EVENT</span>
+      <button class="profile-button" type="button" aria-label="Your profile">A</button>
+    </header>
+
+    <main class="page-shell">
+      <section class="event-heading" aria-labelledby="event-title">
+        <p class="eyebrow">YOUR ROOM, RIGHT NOW</p>
+        <h1 id="event-title">Campus Creators<br /><span>Social Mixer</span></h1>
+        <div class="event-meta">
+          <span>◷ &nbsp;Tonight, 6:00–9:00 PM</span>
+          <span>⌖ &nbsp;The Commons · Room 204</span>
+        </div>
+      </section>
+
+      <section class="people-section" aria-labelledby="people-title">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">MAKE A GOOD FIRST HELLO</p>
+            <h2 id="people-title">People here <span class="count" id="attendee-count">0</span></h2>
+          </div>
+          <span class="checked-in"><span class="live-dot"></span> Checked in</span>
+        </div>
+
+        <label class="search-box">
+          <span aria-hidden="true">⌕</span>
+          <input id="search-input" type="search" placeholder="Search names, interests, or what they do…" />
+          <kbd>/</kbd>
+        </label>
+
+        <div class="filters" id="filters" aria-label="Filter by interest"></div>
+        <div class="attendee-grid" id="attendee-grid" aria-live="polite"></div>
+        <p class="empty-state" id="empty-state" hidden>No one matches that search yet. Try another interest or name.</p>
+      </section>
+    </main>
+
+    <footer class="page-footer">A little context makes saying hello easier. <span>✳</span></footer>
+    <script src="app.js"></script>
+  </body>
+</html>
