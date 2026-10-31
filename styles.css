@@ -78,6 +78,22 @@ kbd { padding: 2px 7px; border: 1px solid #e3e5df; border-radius: 4px; color: #8
 .connect-button { padding: 6px 10px; border: 1px solid #d8e3da; border-radius: 6px; background: #fbfcfa; color: var(--green); cursor: pointer; font-size: 10px; font-weight: 700; }
 .connect-button:hover { border-color: #a6bda9; }
 .connect-button.connected { border-color: #d4e4d8; background: #e7eee8; }
+.connect-button.request-pending { color: #687267; }
+.connect-button:disabled { cursor: default; opacity: .8; }
+.request-received-label { color: #687267; font-size: 10px; }
+.requests-section { margin: 18px 0 20px; padding: 16px; border: 1px solid #dce6dc; border-radius: 10px; background: #f4f7f2; }
+.requests-section[hidden] { display: none; }
+.requests-heading { display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px; }
+.requests-heading h3 { margin: 0; color: #344b39; font: 700 14px Manrope, sans-serif; }
+.requests-heading > span { color: var(--muted); font-size: 10px; }
+.incoming-request-list { display: grid; gap: 8px; }
+.request-card { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+.request-person { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.request-person > div:last-child { display: grid; gap: 3px; min-width: 0; }
+.request-person strong { color: #303b31; font-size: 11px; }
+.request-person span { overflow: hidden; color: var(--muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.request-actions { display: flex; flex: 0 0 auto; gap: 6px; }
+.request-actions .primary-button, .request-actions .secondary-button { padding: 7px 10px; font-size: 10px; }
 .person-top { display: flex; align-items: center; gap: 11px; }
 .avatar { width: 41px; height: 41px; display: grid; flex: 0 0 auto; place-items: center; border-radius: 50%; color: #36473a; font-weight: 700; font-size: 13px; }
 .room-map .other-map-pin { width: 30px; height: 30px; }
@@ -105,6 +121,19 @@ kbd { padding: 2px 7px; border: 1px solid #e3e5df; border-radius: 4px; color: #8
 .primary-button, .secondary-button { padding: 9px 13px; border-radius: 7px; cursor: pointer; font-size: 12px; font-weight: 700; }
 .primary-button { border: 1px solid var(--green); background: var(--green); color: #fff; }
 .secondary-button { border: 1px solid var(--line); background: #fff; color: #465248; }
+.account-actions { display: flex; align-items: center; gap: 9px; }
+.account-name { max-width: 220px; overflow: hidden; color: #657064; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.auth-dialog { width: min(100% - 32px, 430px); }
+#auth-form { display: grid; gap: 13px; padding-top: 12px; }
+#auth-form .eyebrow { margin-bottom: -8px; }
+#auth-form h2 { margin: 0; font-size: 23px; }
+#auth-form > p:not(.eyebrow):not(.auth-message) { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+#auth-form label { display: grid; gap: 5px; color: #535c52; font-size: 11px; font-weight: 700; }
+#auth-form label[hidden] { display: none; }
+#auth-form input { width: 100%; padding: 10px; border: 1px solid #dfe3da; border-radius: 7px; background: #fff; color: #20251f; font: 13px 'DM Sans', sans-serif; }
+.auth-message { min-height: 18px; margin: 0; color: #506b55; font-size: 11px; line-height: 1.5; }
+.auth-mode-toggle { justify-self: center; padding: 6px; border: 0; background: transparent; color: var(--green); cursor: pointer; font: 700 11px 'DM Sans', sans-serif; }
+.primary-button:disabled { opacity: .65; cursor: wait; }
 #profile-edit-form { display: grid; gap: 13px; padding-top: 12px; }
 #profile-edit-form[hidden] { display: none; }
 #profile-edit-form .eyebrow { margin-bottom: -8px; }
@@ -127,4 +156,6 @@ kbd { padding: 2px 7px; border: 1px solid #e3e5df; border-radius: 4px; color: #8
   .checked-in { padding-top: 24px; white-space: nowrap; }
   .attendee-grid { grid-template-columns: 1fr; }
   .person-card { min-height: 0; }
+  .request-card { align-items: start; flex-direction: column; }
+  .request-actions { align-self: end; }
 }

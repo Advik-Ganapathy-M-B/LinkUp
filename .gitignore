@@ -222,3 +222,7 @@ __marimo__/
 # Local LinkUp demo database
 linkup.sqlite3
 linkup.sqlite3-journal
+
+# JavaScript dependencies and build output
+node_modules/
+dist/

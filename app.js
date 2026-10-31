@@ -1,8 +1,16 @@
-const CURRENT_USER_ID = 'you';
+import { createClient } from '@supabase/supabase-js';
+
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabasePublishableKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+const supabase = supabaseUrl && supabasePublishableKey
+  ? createClient(supabaseUrl, supabasePublishableKey)
+  : null;
 
 let attendees = [];
 let currentUser = null;
 let currentConnections = new Set();
+let incomingRequests = new Set();
+let outgoingRequests = new Set();
 let selectedInterest = 'All';
 let profileReturnScroll = { x: 0, y: 0 };
 let profileOpenScroll = { x: 0, y: 0 };
@@ -23,11 +31,32 @@ const checkInToggle = document.querySelector('#check-in-toggle');
 const profileDialog = document.querySelector('#profile-dialog');
 const profileView = document.querySelector('#profile-view');
 const profileEditForm = document.querySelector('#profile-edit-form');
+const authDialog = document.querySelector('#auth-dialog');
+const authForm = document.querySelector('#auth-form');
+const authMessage = document.querySelector('#auth-message');
+const authOpenButton = document.querySelector('#auth-open');
+const authModeToggle = document.querySelector('#auth-mode-toggle');
+const authTitle = document.querySelector('#auth-title');
+const authSubmit = document.querySelector('#auth-submit');
+const signOutButton = document.querySelector('#sign-out');
+const accountName = document.querySelector('#account-name');
+const confirmPasswordLabel = document.querySelector('#confirm-password-label');
+const confirmPasswordInput = document.querySelector('#confirm-password');
+const requestsSection = document.querySelector('#requests-section');
+const incomingRequestList = document.querySelector('#incoming-request-list');
+let authMode = 'signin';
+let activeDataLoad = null;
 
 async function apiRequest(path, options = {}) {
+  const { data: { session } = {} } = supabase ? await supabase.auth.getSession() : {};
+  if (!session?.access_token) throw new Error('Sign in to continue.');
   const response = await fetch(path, {
     ...options,
-    headers: { 'Content-Type': 'application/json', ...options.headers },
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${session.access_token}`,
+      ...options.headers,
+    },
   });
   if (!response.ok) {
     const problem = await response.json().catch(() => ({}));
@@ -41,24 +70,58 @@ function showApiError(message) {
   apiError.hidden = false;
 }
 
-async function loadData() {
-  const [loadedAttendees, loadedUser] = await Promise.all([
-    apiRequest('/api/attendees'),
-    apiRequest('/api/me'),
-  ]);
-  const snapshot = JSON.stringify([loadedAttendees, loadedUser]);
-  const dataChanged = snapshot !== lastDataSnapshot;
-  lastDataSnapshot = snapshot;
-  attendees = loadedAttendees;
-  currentUser = loadedUser;
-  currentConnections = new Set(currentUser.connections);
-  apiError.hidden = true;
-  if (dataChanged) {
-    renderFilters();
-    renderAttendees();
-    renderMapPins();
-  }
-  updateCheckInUI();
+function updateAccountControls(session) {
+  authOpenButton.hidden = Boolean(session);
+  signOutButton.hidden = !session;
+  accountName.hidden = !session;
+  accountName.textContent = session?.user?.email || '';
+}
+
+function showAuthDialog() {
+  if (!authDialog.open) authDialog.showModal();
+}
+
+function setAuthMode(mode) {
+  authMode = mode;
+  const signingUp = mode === 'signup';
+  authTitle.textContent = signingUp ? 'Create your account' : 'Sign in to LinkUp';
+  authSubmit.textContent = signingUp ? 'Create account' : 'Sign in';
+  authModeToggle.textContent = signingUp
+    ? 'Already have an account? Sign in'
+    : 'New here? Create an account';
+  confirmPasswordLabel.hidden = !signingUp;
+  confirmPasswordInput.required = signingUp;
+  confirmPasswordInput.value = '';
+  document.querySelector('#auth-description').textContent = signingUp
+    ? 'Create a profile to meet people at this event.'
+    : "Use your email and password to see who's here.";
+  document.querySelector('#auth-password').autocomplete = signingUp ? 'new-password' : 'current-password';
+  authMessage.textContent = '';
+}
+
+function loadData() {
+  if (activeDataLoad) return activeDataLoad;
+  activeDataLoad = apiRequest('/api/bootstrap').then(({ attendees: loadedAttendees, me: loadedUser, requests }) => {
+    const snapshot = JSON.stringify([loadedAttendees, loadedUser, requests]);
+    const dataChanged = snapshot !== lastDataSnapshot;
+    lastDataSnapshot = snapshot;
+    attendees = loadedAttendees;
+    currentUser = loadedUser;
+    currentConnections = new Set(currentUser.connections);
+    incomingRequests = new Set(requests.incoming);
+    outgoingRequests = new Set(requests.outgoing);
+    apiError.hidden = true;
+    if (dataChanged) {
+      renderFilters();
+      renderAttendees();
+      renderConnectionRequests();
+      renderMapPins();
+    }
+    updateCheckInUI();
+  }).finally(() => {
+    activeDataLoad = null;
+  });
+  return activeDataLoad;
 }
 
 function escapeHTML(value = '') {
@@ -116,7 +179,7 @@ function updateCheckInUI() {
 function renderMapPins() {
   roomMap.querySelectorAll('.other-map-pin').forEach((pin) => pin.remove());
   for (const person of attendees) {
-    if (person.id === CURRENT_USER_ID || !person.checkedIn || !person.location) continue;
+    if (person.id === currentUser?.id || !person.checkedIn || !person.location) continue;
     const pin = document.createElement('button');
     pin.type = 'button';
     pin.className = `other-map-pin avatar ${person.color}`;
@@ -133,22 +196,39 @@ function renderMapPins() {
   }
 }
 
-async function changeConnection(personId) {
+async function changeConnection(personId, action = 'request') {
   const pagePosition = { x: window.scrollX, y: window.scrollY };
-  const isConnected = currentConnections.has(personId);
   try {
-    await apiRequest(`/api/connections/${encodeURIComponent(personId)}`, {
-      method: isConnected ? 'DELETE' : 'PUT',
+    const encodedId = encodeURIComponent(personId);
+    const isDisconnect = action === 'disconnect';
+    await apiRequest(isDisconnect
+      ? `/api/connections/${encodedId}`
+      : `/api/connection-requests/${encodedId}`, {
+      method: isDisconnect ? 'DELETE' : 'POST',
     });
     await loadData();
     requestAnimationFrame(() => {
       window.scrollTo(pagePosition.x, pagePosition.y);
-      const updatedButton = [...grid.querySelectorAll('[data-connect-id]')]
-        .find((button) => button.dataset.connectId === personId);
+      const updatedButton = [...grid.querySelectorAll('[data-connect-id], [data-disconnect-id]')]
+        .find((button) => button.dataset.connectId === personId || button.dataset.disconnectId === personId);
       updatedButton?.focus({ preventScroll: true });
     });
   } catch (error) {
-    showApiError(`Could not update connection: ${error.message}`);
+    showApiError(`Could not update connection request: ${error.message}`);
+  }
+}
+
+async function respondToConnectionRequest(personId, accept) {
+  try {
+    const encodedId = encodeURIComponent(personId);
+    await apiRequest(accept
+      ? `/api/connection-requests/${encodedId}/accept`
+      : `/api/connection-requests/${encodedId}`, {
+      method: accept ? 'POST' : 'DELETE',
+    });
+    await loadData();
+  } catch (error) {
+    showApiError(`Could not respond to request: ${error.message}`);
   }
 }
 
@@ -160,6 +240,25 @@ function renderFilters() {
     <button class="filter-button ${interest === selectedInterest ? 'active' : ''}" type="button" data-interest="${escapeHTML(interest)}">
       ${escapeHTML(interest)}
     </button>
+  `).join('');
+}
+
+function renderConnectionRequests() {
+  const requests = [...incomingRequests]
+    .map((personId) => attendees.find((person) => person.id === personId))
+    .filter(Boolean);
+  requestsSection.hidden = requests.length === 0;
+  incomingRequestList.innerHTML = requests.map((person) => `
+    <article class="request-card">
+      <div class="request-person">
+        <div class="avatar ${escapeHTML(person.color)}" aria-hidden="true">${escapeHTML(initialsFor(person.name))}</div>
+        <div><strong>${escapeHTML(person.name)}</strong><span>${escapeHTML(person.role)} sent you a request</span></div>
+      </div>
+      <div class="request-actions">
+        <button class="primary-button" type="button" data-accept-request-id="${escapeHTML(person.id)}">Accept</button>
+        <button class="secondary-button" type="button" data-decline-request-id="${escapeHTML(person.id)}">Decline</button>
+      </div>
+    </article>
   `).join('');
 }
 
@@ -180,7 +279,7 @@ function renderAttendees() {
   count.textContent = visibleAttendees.length;
   emptyState.hidden = visibleAttendees.length > 0;
   emptyState.textContent = selectedInterest === 'Mutuals'
-    ? 'No mutual connections yet. Connect to someone to find people you have in common.'
+    ? 'No mutual connections yet. Send or accept a request to connect with someone.'
     : 'No one matches that search yet. Try another interest or name.';
   grid.innerHTML = visibleAttendees.map((person) => `
     <article class="person-card">
@@ -194,13 +293,37 @@ function renderAttendees() {
         <span class="card-hint">View profile →</span>
       </div>
       <div class="card-actions">
-        ${person.id === CURRENT_USER_ID
+        ${person.id === currentUser?.id
           ? '<span class="my-profile-label">Your profile</span>'
           : `<span class="mutual-count">${getMutualConnections(person).length} mutual connection${getMutualConnections(person).length === 1 ? '' : 's'}</span>
              <button class="connect-button ${currentConnections.has(person.id) ? 'connected' : ''}" type="button" data-connect-id="${escapeHTML(person.id)}" aria-pressed="${currentConnections.has(person.id)}">${currentConnections.has(person.id) ? '✓ Connected' : 'Connect'}</button>`}
       </div>
     </article>
   `).join('');
+
+  for (const button of grid.querySelectorAll('[data-connect-id]')) {
+    const personId = button.dataset.connectId;
+    const person = attendees.find((attendee) => attendee.id === personId);
+    if (!person?.canReceiveRequests) {
+      button.textContent = 'Sample profile';
+      button.disabled = true;
+      delete button.dataset.connectId;
+    } else if (currentConnections.has(personId)) {
+      button.textContent = 'Connected';
+      button.classList.add('connected');
+      button.dataset.disconnectId = personId;
+      delete button.dataset.connectId;
+    } else if (incomingRequests.has(personId)) {
+      button.textContent = 'Request received';
+      button.disabled = true;
+      delete button.dataset.connectId;
+    } else if (outgoingRequests.has(personId)) {
+      button.textContent = 'Request sent · cancel';
+      button.dataset.cancelRequestId = personId;
+      button.classList.add('request-pending');
+      delete button.dataset.connectId;
+    }
+  }
 }
 
 function renderProfile(person) {
@@ -225,10 +348,10 @@ function renderProfile(person) {
       ${profileField('Fun fact', person.funFact)}
       ${profileField('Hoping to meet', person.lookingToMeet)}
       <section class="profile-fact"><h3>Interests</h3><div class="tag-row">${person.interests.map((interest) => `<span class="tag">${escapeHTML(interest)}</span>`).join('')}</div></section>
-      ${person.id === CURRENT_USER_ID ? '' : profileField('Common connections', mutualConnections.map((mutual) => mutual.name).join(', ') || 'No shared connections yet')}
+      ${person.id === currentUser?.id ? '' : profileField('Common connections', mutualConnections.map((mutual) => mutual.name).join(', ') || 'No shared connections yet')}
       ${linkedinUrl ? `<a class="profile-link" href="${escapeHTML(linkedinUrl)}" target="_blank" rel="noopener noreferrer">View LinkedIn profile ↗</a>` : ''}
     </div>
-    ${person.id === CURRENT_USER_ID ? '<button id="edit-own-profile" class="primary-button" type="button">Edit my profile</button>' : ''}
+    ${person.id === currentUser?.id ? '<button id="edit-own-profile" class="primary-button" type="button">Edit my profile</button>' : ''}
   `;
 
   const photo = profileView.querySelector('.profile-photo');
@@ -305,10 +428,30 @@ grid.addEventListener('click', (event) => {
     changeConnection(connectButton.dataset.connectId);
     return;
   }
+  const disconnectButton = event.target.closest('[data-disconnect-id]');
+  if (disconnectButton) {
+    changeConnection(disconnectButton.dataset.disconnectId, 'disconnect');
+    return;
+  }
+  const cancelButton = event.target.closest('[data-cancel-request-id]');
+  if (cancelButton) {
+    respondToConnectionRequest(cancelButton.dataset.cancelRequestId, false);
+    return;
+  }
   const card = event.target.closest('[data-person-id]');
   if (!card) return;
   const person = attendees.find((attendee) => attendee.id === card.dataset.personId);
   if (person) openProfile(person, card);
+});
+
+incomingRequestList.addEventListener('click', (event) => {
+  const acceptButton = event.target.closest('[data-accept-request-id]');
+  if (acceptButton) {
+    respondToConnectionRequest(acceptButton.dataset.acceptRequestId, true);
+    return;
+  }
+  const declineButton = event.target.closest('[data-decline-request-id]');
+  if (declineButton) respondToConnectionRequest(declineButton.dataset.declineRequestId, false);
 });
 
 grid.addEventListener('keydown', (event) => {
@@ -363,13 +506,96 @@ filters.addEventListener('click', (event) => {
 
 searchInput.addEventListener('input', renderAttendees);
 
-loadData().catch((error) => {
-  showApiError(`LinkUp could not reach its backend. Start the server, then refresh. Details: ${error.message}`);
+authOpenButton.addEventListener('click', () => {
+  setAuthMode('signin');
+  showAuthDialog();
 });
 
-// Check for updates from other browsers every five seconds while the profile dialog is closed.
+document.querySelector('#close-auth-dialog').addEventListener('click', () => authDialog.close());
+authModeToggle.addEventListener('click', () => setAuthMode(authMode === 'signin' ? 'signup' : 'signin'));
+
+authForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const email = document.querySelector('#auth-email').value.trim();
+  const passwordInput = document.querySelector('#auth-password');
+  const password = passwordInput.value;
+  authSubmit.disabled = true;
+  authMessage.textContent = authMode === 'signup' ? 'Creating account…' : 'Signing in…';
+  try {
+    if (authMode === 'signup' && password !== confirmPasswordInput.value) {
+      authMessage.textContent = 'Those passwords do not match. Please try again.';
+      return;
+    }
+    if (!supabase) throw new Error('Add your Supabase URL and publishable key to .env, then restart Vite.');
+    const result = authMode === 'signup'
+      ? await supabase.auth.signUp({
+          email,
+          password,
+          options: { emailRedirectTo: window.location.origin },
+        })
+      : await supabase.auth.signInWithPassword({ email, password });
+    if (result.error) throw result.error;
+    passwordInput.value = '';
+    confirmPasswordInput.value = '';
+    if (authMode === 'signup' && !result.data.session) {
+      authMessage.textContent = 'Check your email to confirm your account, then come back here to sign in.';
+      return;
+    }
+    authMessage.textContent = 'Signed in. Loading the event…';
+    authDialog.close();
+    await loadData();
+  } catch (error) {
+    authMessage.textContent = error.message || 'Could not authenticate. Please try again.';
+  } finally {
+    authSubmit.disabled = false;
+  }
+});
+
+signOutButton.addEventListener('click', async () => {
+  if (!supabase) return;
+  const { error } = await supabase.auth.signOut();
+  if (error) showApiError(`Could not sign out: ${error.message}`);
+});
+
+if (!supabase) {
+  updateAccountControls(null);
+  showApiError('Add VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY to .env to enable sign in.');
+  setAuthMode('signin');
+  showAuthDialog();
+} else {
+  supabase.auth.onAuthStateChange((_event, session) => {
+    updateAccountControls(session);
+    if (session) {
+      window.setTimeout(() => loadData().catch((error) => showApiError(`Could not load event data: ${error.message}`)), 0);
+    } else {
+      attendees = [];
+      currentUser = null;
+      currentConnections = new Set();
+      incomingRequests = new Set();
+      outgoingRequests = new Set();
+      lastDataSnapshot = '';
+      renderFilters();
+      renderAttendees();
+      renderConnectionRequests();
+      renderMapPins();
+      updateCheckInUI();
+      showAuthDialog();
+    }
+  });
+  supabase.auth.getSession().then(({ data: { session } }) => {
+    updateAccountControls(session);
+    if (session) {
+      loadData().catch((error) => showApiError(`LinkUp could not reach its backend. Details: ${error.message}`));
+    } else {
+      setAuthMode('signin');
+      showAuthDialog();
+    }
+  });
+}
+
+// Refresh periodically, but avoid overlapping requests and background-tab traffic.
 window.setInterval(() => {
-  if (!profileDialog.open) {
+  if (supabase && currentUser && document.visibilityState === 'visible' && !profileDialog.open) {
     loadData().catch((error) => showApiError(`Could not refresh event data: ${error.message}`));
   }
 }, 5000);

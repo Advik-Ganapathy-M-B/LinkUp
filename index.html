@@ -5,13 +5,17 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#f7f7f2" />
     <title>LinkUp — find your people</title>
-    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
     <header class="topbar">
       <a class="brand" href="#" aria-label="LinkUp home"><span class="brand-mark">L</span>linkup</a>
       <span class="event-label"><span class="live-dot"></span> LIVE EVENT</span>
-      <button class="profile-button" type="button" aria-label="Your profile">A</button>
+      <div class="account-actions">
+        <button id="auth-open" class="secondary-button" type="button">Sign in</button>
+        <span id="account-name" class="account-name" hidden></span>
+        <button id="sign-out" class="secondary-button" type="button" hidden>Sign out</button>
+      </div>
     </header>
 
     <main class="page-shell">
@@ -68,11 +72,34 @@
           <kbd>/</kbd>
         </label>
 
+        <section id="requests-section" class="requests-section" aria-labelledby="requests-title" hidden>
+          <div class="requests-heading">
+            <h3 id="requests-title">Connection requests</h3>
+            <span>Choose who you connect with</span>
+          </div>
+          <div id="incoming-request-list" class="incoming-request-list"></div>
+        </section>
+
         <div class="filters" id="filters" aria-label="Filter by interest"></div>
         <div class="attendee-grid" id="attendee-grid" aria-live="polite"></div>
         <p class="empty-state" id="empty-state" hidden>No one matches that search yet. Try another interest or name.</p>
       </section>
     </main>
+
+    <dialog id="auth-dialog" class="profile-dialog auth-dialog" aria-labelledby="auth-title">
+      <button id="close-auth-dialog" class="dialog-close" type="button" aria-label="Close sign in">×</button>
+      <form id="auth-form">
+        <p class="eyebrow">JOIN YOUR EVENT</p>
+        <h2 id="auth-title">Sign in to LinkUp</h2>
+        <p id="auth-description">Use your email and password to see who's here.</p>
+        <label>Email<input id="auth-email" name="email" type="email" autocomplete="email" required /></label>
+        <label>Password<input id="auth-password" name="password" type="password" autocomplete="current-password" minlength="8" required /></label>
+        <label id="confirm-password-label" hidden>Confirm password<input id="confirm-password" name="confirmPassword" type="password" autocomplete="new-password" minlength="8" /></label>
+        <p id="auth-message" class="auth-message" role="status" aria-live="polite"></p>
+        <button id="auth-submit" class="primary-button" type="submit">Sign in</button>
+        <button id="auth-mode-toggle" class="auth-mode-toggle" type="button">New here? Create an account</button>
+      </form>
+    </dialog>
 
     <dialog id="profile-dialog" class="profile-dialog" aria-label="Attendee profile">
       <button id="close-profile-dialog" class="dialog-close" type="button" aria-label="Close profile">×</button>
@@ -95,6 +122,6 @@
     </dialog>
 
     <footer class="page-footer">A little context makes saying hello easier. <span>✳</span></footer>
-    <script src="app.js"></script>
+    <script type="module" src="/app.js"></script>
   </body>
 </html>

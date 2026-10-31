@@ -1,21 +1,42 @@
 """The LinkUp demo API and SQLite database."""
 
 import json
+import os
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
 
-from fastapi import FastAPI, HTTPException
+from dotenv import load_dotenv
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import FileResponse
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
+from supabase import create_client
+from starlette.staticfiles import StaticFiles
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-DATABASE_PATH = PROJECT_ROOT / "linkup.sqlite3"
-CURRENT_USER_ID = "you"  # Demo identity; replace this with real sign-in later.
+LEGACY_DEMO_USER_ID = "you"
+load_dotenv(PROJECT_ROOT / ".env")
+DATABASE_PATH = Path(
+    os.getenv("LINKUP_DATABASE_PATH", str(PROJECT_ROOT / "linkup.sqlite3"))
+)
+DATABASE_PATH.parent.mkdir(parents=True, exist_ok=True)
+SUPABASE_URL = os.getenv("SUPABASE_URL", "").rstrip("/")
+SUPABASE_PUBLISHABLE_KEY = os.getenv("SUPABASE_PUBLISHABLE_KEY", "")
+supabase_auth = (
+    create_client(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY)
+    if SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY
+    else None
+)
+bearer_scheme = HTTPBearer(auto_error=False)
 
 app = FastAPI(title="LinkUp API")
+
+FRONTEND_DIST = PROJECT_ROOT / "dist"
+if (FRONTEND_DIST / "assets").is_dir():
+    app.mount("/assets", StaticFiles(directory=FRONTEND_DIST / "assets"), name="assets")
 
 
 @contextmanager
@@ -53,7 +74,8 @@ def initialize_database() -> None:
                 photo TEXT NOT NULL DEFAULT '',
                 checked_in INTEGER NOT NULL DEFAULT 1,
                 map_x REAL,
-                map_y REAL
+                map_y REAL,
+                auth_user_id TEXT
             );
             CREATE TABLE IF NOT EXISTS connections (
                 user_id TEXT NOT NULL REFERENCES attendees(id),
@@ -61,7 +83,35 @@ def initialize_database() -> None:
                 PRIMARY KEY (user_id, attendee_id),
                 CHECK (user_id <> attendee_id)
             );
+            CREATE TABLE IF NOT EXISTS connection_requests (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                sender_id TEXT NOT NULL REFERENCES attendees(id),
+                recipient_id TEXT NOT NULL REFERENCES attendees(id),
+                status TEXT NOT NULL DEFAULT 'pending' CHECK (status = 'pending'),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE (sender_id, recipient_id),
+                CHECK (sender_id <> recipient_id)
+            );
+            CREATE INDEX IF NOT EXISTS connection_requests_recipient_status
+            ON connection_requests(recipient_id, status);
             """
+        )
+
+        # Connections made before request/accept existed count as accepted.
+        connection.execute(
+            """INSERT OR IGNORE INTO connections (user_id, attendee_id)
+            SELECT attendee_id, user_id FROM connections"""
+        )
+
+        # Existing local SQLite databases were created before Supabase auth.
+        attendee_columns = {
+            row["name"] for row in connection.execute("PRAGMA table_info(attendees)")
+        }
+        if "auth_user_id" not in attendee_columns:
+            connection.execute("ALTER TABLE attendees ADD COLUMN auth_user_id TEXT")
+        connection.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS attendees_auth_user_id "
+            "ON attendees(auth_user_id) WHERE auth_user_id IS NOT NULL"
         )
 
         attendee_count = connection.execute("SELECT COUNT(*) FROM attendees").fetchone()[0]
@@ -99,11 +149,19 @@ def initialize_database() -> None:
         )
 
 
-def attendee_to_dict(connection: sqlite3.Connection, row: sqlite3.Row) -> dict:
-    connection_ids = connection.execute(
-        "SELECT attendee_id FROM connections WHERE user_id = ? ORDER BY attendee_id",
-        (row["id"],),
-    ).fetchall()
+def attendee_to_dict(
+    connection: sqlite3.Connection,
+    row: sqlite3.Row,
+    connection_ids: list[str] | None = None,
+) -> dict:
+    if connection_ids is None:
+        connection_ids = [
+            item["attendee_id"]
+            for item in connection.execute(
+                "SELECT attendee_id FROM connections WHERE user_id = ? ORDER BY attendee_id",
+                (row["id"],),
+            ).fetchall()
+        ]
     location = None
     if row["map_x"] is not None and row["map_y"] is not None:
         location = {"x": row["map_x"], "y": row["map_y"]}
@@ -114,7 +172,7 @@ def attendee_to_dict(connection: sqlite3.Connection, row: sqlite3.Row) -> dict:
         "role": row["role"],
         "note": row["note"],
         "interests": json.loads(row["interests"]),
-        "connections": [item["attendee_id"] for item in connection_ids],
+        "connections": connection_ids,
         "color": row["color"],
         "education": row["education"],
         "funFact": row["fun_fact"],
@@ -123,7 +181,22 @@ def attendee_to_dict(connection: sqlite3.Connection, row: sqlite3.Row) -> dict:
         "photo": row["photo"],
         "checkedIn": bool(row["checked_in"]),
         "location": location,
+        "canReceiveRequests": bool(row["auth_user_id"]),
     }
+
+
+def attendees_to_dict(connection: sqlite3.Connection, rows: list[sqlite3.Row]) -> list[dict]:
+    """Serialize the directory with one connection query instead of one per person."""
+    links = connection.execute(
+        "SELECT user_id, attendee_id FROM connections ORDER BY attendee_id"
+    ).fetchall()
+    connection_map: dict[str, list[str]] = {}
+    for link in links:
+        connection_map.setdefault(link["user_id"], []).append(link["attendee_id"])
+    return [
+        attendee_to_dict(connection, row, connection_map.get(row["id"], []))
+        for row in rows
+    ]
 
 
 def find_attendee(connection: sqlite3.Connection, attendee_id: str) -> dict:
@@ -151,19 +224,123 @@ class LocationUpdate(BaseModel):
 initialize_database()
 
 
+def get_current_user(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+) -> dict:
+    """Validate the Supabase access token and return its trusted user identity."""
+    if credentials is None:
+        raise HTTPException(status_code=401, detail="Sign in to continue")
+    if supabase_auth is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Authentication is not configured. Set SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY.",
+        )
+    try:
+        # get_claims verifies the JWT signature against cached Supabase public keys.
+        # Unlike get_user, it usually avoids a network call for every API request.
+        response = supabase_auth.auth.get_claims(credentials.credentials)
+        claims = getattr(response, "claims", None)
+        if claims is None and isinstance(response, dict):
+            claims = response.get("claims")
+    except Exception as error:
+        raise HTTPException(status_code=401, detail="Your session is invalid or expired") from error
+    expected_issuer = f"{SUPABASE_URL}/auth/v1"
+    audience = claims.get("aud") if isinstance(claims, dict) else None
+    valid_audience = audience == "authenticated" or (
+        isinstance(audience, list) and "authenticated" in audience
+    )
+    user_id = claims.get("sub") if isinstance(claims, dict) else None
+    if (
+        not user_id
+        or claims.get("iss") != expected_issuer
+        or not valid_audience
+    ):
+        raise HTTPException(status_code=401, detail="Your session is invalid or expired")
+    return {"id": str(user_id), "email": claims.get("email") or ""}
+
+
+def ensure_user_profile(connection: sqlite3.Connection, user: dict) -> dict:
+    """Create a LinkUp profile on the first authenticated visit."""
+    user_id = user["id"]
+    row = connection.execute(
+        "SELECT * FROM attendees WHERE auth_user_id = ?", (user_id,)
+    ).fetchone()
+    if row is None:
+        connection.execute(
+            """INSERT INTO attendees
+            (id, auth_user_id, name, role, note, interests, color, checked_in)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 0)""",
+            (user_id, user_id, user["email"].split("@")[0] or "New attendee",
+             "New attendee", "Add a little about yourself.", "[]", "blue"),
+        )
+        row = connection.execute(
+            "SELECT * FROM attendees WHERE auth_user_id = ?", (user_id,)
+        ).fetchone()
+    return attendee_to_dict(connection, row)
+
+
+def send_connection_request(
+    connection: sqlite3.Connection,
+    sender_id: str,
+    recipient_id: str,
+) -> dict:
+    if sender_id == recipient_id:
+        raise HTTPException(status_code=400, detail="You cannot connect to yourself")
+    find_attendee(connection, recipient_id)
+    recipient_account = connection.execute(
+        "SELECT auth_user_id FROM attendees WHERE id = ?", (recipient_id,)
+    ).fetchone()
+    if not recipient_account["auth_user_id"]:
+        raise HTTPException(
+            status_code=409,
+            detail="This sample profile cannot accept requests. Try another signed-in attendee.",
+        )
+
+    already_connected = connection.execute(
+        """SELECT 1 FROM connections
+        WHERE (user_id = ? AND attendee_id = ?)
+           OR (user_id = ? AND attendee_id = ?) LIMIT 1""",
+        (sender_id, recipient_id, recipient_id, sender_id),
+    ).fetchone()
+    if already_connected:
+        connection.executemany(
+            "INSERT OR IGNORE INTO connections (user_id, attendee_id) VALUES (?, ?)",
+            [(sender_id, recipient_id), (recipient_id, sender_id)],
+        )
+        return {"status": "connected"}
+
+    incoming = connection.execute(
+        """SELECT 1 FROM connection_requests
+        WHERE sender_id = ? AND recipient_id = ? AND status = 'pending'""",
+        (recipient_id, sender_id),
+    ).fetchone()
+    if incoming:
+        connection.executemany(
+            "INSERT OR IGNORE INTO connections (user_id, attendee_id) VALUES (?, ?)",
+            [(sender_id, recipient_id), (recipient_id, sender_id)],
+        )
+        connection.execute(
+            """DELETE FROM connection_requests
+            WHERE (sender_id = ? AND recipient_id = ?)
+               OR (sender_id = ? AND recipient_id = ?)""",
+            (sender_id, recipient_id, recipient_id, sender_id),
+        )
+        return {"status": "connected"}
+
+    connection.execute(
+        """INSERT OR IGNORE INTO connection_requests (sender_id, recipient_id)
+        VALUES (?, ?)""",
+        (sender_id, recipient_id),
+    )
+    return {"status": "pending"}
+
+
 @app.get("/", include_in_schema=False)
 def home():
-    return FileResponse(PROJECT_ROOT / "index.html")
-
-
-@app.get("/styles.css", include_in_schema=False)
-def styles():
-    return FileResponse(PROJECT_ROOT / "styles.css", media_type="text/css")
-
-
-@app.get("/app.js", include_in_schema=False)
-def javascript():
-    return FileResponse(PROJECT_ROOT / "app.js", media_type="text/javascript")
+    built_page = FRONTEND_DIST / "index.html"
+    if not built_page.is_file():
+        raise HTTPException(status_code=503, detail="Build the frontend with npm run build first")
+    return FileResponse(built_page)
 
 
 @app.get("/api/health")
@@ -171,89 +348,165 @@ def health():
     return {"status": "ok"}
 
 
-@app.get("/api/attendees")
-def list_attendees():
+@app.get("/api/bootstrap")
+def bootstrap(user: dict = Depends(get_current_user)):
+    """Fetch the event directory and the signed-in user's profile in one request."""
     with database() as connection:
-        rows = connection.execute("SELECT * FROM attendees ORDER BY name").fetchall()
-        return [attendee_to_dict(connection, row) for row in rows]
+        current_profile = ensure_user_profile(connection, user)
+        rows = connection.execute(
+            "SELECT * FROM attendees WHERE id <> ? ORDER BY name", (LEGACY_DEMO_USER_ID,)
+        ).fetchall()
+        attendees = attendees_to_dict(connection, rows)
+        pending_requests = connection.execute(
+            """SELECT sender_id, recipient_id FROM connection_requests
+            WHERE status = 'pending' AND (sender_id = ? OR recipient_id = ?)""",
+            (current_profile["id"], current_profile["id"]),
+        ).fetchall()
+        requests = {
+            "incoming": [row["sender_id"] for row in pending_requests
+                         if row["recipient_id"] == current_profile["id"]],
+            "outgoing": [row["recipient_id"] for row in pending_requests
+                         if row["sender_id"] == current_profile["id"]],
+        }
+        return {"attendees": attendees, "me": current_profile, "requests": requests}
+
+
+@app.get("/api/attendees")
+def list_attendees(user: dict = Depends(get_current_user)):
+    """Keep the original attendee-directory endpoint for existing API clients."""
+    with database() as connection:
+        ensure_user_profile(connection, user)
+        rows = connection.execute(
+            "SELECT * FROM attendees WHERE id <> ? ORDER BY name", (LEGACY_DEMO_USER_ID,)
+        ).fetchall()
+        return attendees_to_dict(connection, rows)
 
 
 @app.get("/api/me")
-def current_user():
+def current_profile(user: dict = Depends(get_current_user)):
     with database() as connection:
-        return find_attendee(connection, CURRENT_USER_ID)
+        return ensure_user_profile(connection, user)
 
 
 @app.put("/api/me")
-def update_current_profile(profile: ProfileUpdate):
+def update_current_profile(profile: ProfileUpdate, user: dict = Depends(get_current_user)):
     fields = profile.model_dump()
     with database() as connection:
+        current_profile = ensure_user_profile(connection, user)
         connection.execute(
             """UPDATE attendees
             SET name = ?, role = ?, education = ?, fun_fact = ?,
                 looking_to_meet = ?, linkedin = ?, photo = ?
             WHERE id = ?""",
             (fields["name"], fields["role"], fields["education"], fields["funFact"],
-             fields["lookingToMeet"], fields["linkedin"], fields["photo"], CURRENT_USER_ID),
+             fields["lookingToMeet"], fields["linkedin"], fields["photo"], current_profile["id"]),
         )
-        return find_attendee(connection, CURRENT_USER_ID)
+        return find_attendee(connection, current_profile["id"])
 
 
 @app.put("/api/connections/{attendee_id}")
-def connect_to_attendee(attendee_id: str):
-    if attendee_id == CURRENT_USER_ID:
-        raise HTTPException(status_code=400, detail="You cannot connect to yourself")
+def connect_to_attendee(attendee_id: str, user: dict = Depends(get_current_user)):
     with database() as connection:
+        current_profile = ensure_user_profile(connection, user)
+        return send_connection_request(connection, current_profile["id"], attendee_id)
+
+
+@app.post("/api/connection-requests/{attendee_id}")
+def request_connection(attendee_id: str, user: dict = Depends(get_current_user)):
+    with database() as connection:
+        current_profile = ensure_user_profile(connection, user)
+        return send_connection_request(connection, current_profile["id"], attendee_id)
+
+
+@app.post("/api/connection-requests/{attendee_id}/accept")
+def accept_connection_request(attendee_id: str, user: dict = Depends(get_current_user)):
+    with database() as connection:
+        current_profile = ensure_user_profile(connection, user)
         find_attendee(connection, attendee_id)
-        connection.execute(
+        incoming_request = connection.execute(
+            """SELECT 1 FROM connection_requests
+            WHERE sender_id = ? AND recipient_id = ? AND status = 'pending'""",
+            (attendee_id, current_profile["id"]),
+        ).fetchone()
+        if incoming_request is None:
+            raise HTTPException(status_code=404, detail="Connection request not found")
+        connection.executemany(
             "INSERT OR IGNORE INTO connections (user_id, attendee_id) VALUES (?, ?)",
-            (CURRENT_USER_ID, attendee_id),
+            [(current_profile["id"], attendee_id), (attendee_id, current_profile["id"])],
         )
-        return {"connected": True}
+        connection.execute(
+            """DELETE FROM connection_requests
+            WHERE (sender_id = ? AND recipient_id = ?)
+               OR (sender_id = ? AND recipient_id = ?)""",
+            (attendee_id, current_profile["id"], current_profile["id"], attendee_id),
+        )
+        return {"status": "connected"}
+
+
+@app.delete("/api/connection-requests/{attendee_id}")
+def dismiss_connection_request(attendee_id: str, user: dict = Depends(get_current_user)):
+    with database() as connection:
+        current_profile = ensure_user_profile(connection, user)
+        cursor = connection.execute(
+            """DELETE FROM connection_requests
+            WHERE status = 'pending' AND (
+                (sender_id = ? AND recipient_id = ?)
+                OR (sender_id = ? AND recipient_id = ?)
+            )""",
+            (current_profile["id"], attendee_id, attendee_id, current_profile["id"]),
+        )
+        return {"dismissed": cursor.rowcount > 0}
 
 
 @app.delete("/api/connections/{attendee_id}")
-def disconnect_from_attendee(attendee_id: str):
+def disconnect_from_attendee(attendee_id: str, user: dict = Depends(get_current_user)):
     with database() as connection:
+        current_profile = ensure_user_profile(connection, user)
         connection.execute(
-            "DELETE FROM connections WHERE user_id = ? AND attendee_id = ?",
-            (CURRENT_USER_ID, attendee_id),
+            """DELETE FROM connections
+            WHERE (user_id = ? AND attendee_id = ?)
+               OR (user_id = ? AND attendee_id = ?)""",
+            (current_profile["id"], attendee_id, attendee_id, current_profile["id"]),
         )
         return {"connected": False}
 
 
 @app.post("/api/check-in")
-def check_in():
+def check_in(user: dict = Depends(get_current_user)):
     with database() as connection:
-        connection.execute("UPDATE attendees SET checked_in = 1 WHERE id = ?", (CURRENT_USER_ID,))
-        return find_attendee(connection, CURRENT_USER_ID)
+        current_profile = ensure_user_profile(connection, user)
+        connection.execute("UPDATE attendees SET checked_in = 1 WHERE id = ?", (current_profile["id"],))
+        return find_attendee(connection, current_profile["id"])
 
 
 @app.post("/api/check-out")
-def check_out():
+def check_out(user: dict = Depends(get_current_user)):
     with database() as connection:
+        current_profile = ensure_user_profile(connection, user)
         connection.execute(
             "UPDATE attendees SET checked_in = 0, map_x = NULL, map_y = NULL WHERE id = ?",
-            (CURRENT_USER_ID,),
+            (current_profile["id"],),
         )
-        return find_attendee(connection, CURRENT_USER_ID)
+        return find_attendee(connection, current_profile["id"])
 
 
 @app.put("/api/location")
-def update_location(location: LocationUpdate):
+def update_location(location: LocationUpdate, user: dict = Depends(get_current_user)):
     with database() as connection:
-        attendee = find_attendee(connection, CURRENT_USER_ID)
+        current_profile = ensure_user_profile(connection, user)
+        attendee = find_attendee(connection, current_profile["id"])
         if not attendee["checkedIn"]:
             raise HTTPException(status_code=409, detail="Check in before sharing your location")
         connection.execute(
             "UPDATE attendees SET map_x = ?, map_y = ? WHERE id = ?",
-            (location.x, location.y, CURRENT_USER_ID),
+            (location.x, location.y, current_profile["id"]),
         )
-        return find_attendee(connection, CURRENT_USER_ID)
+        return find_attendee(connection, current_profile["id"])
 
 
 @app.delete("/api/location")
-def clear_location():
+def clear_location(user: dict = Depends(get_current_user)):
     with database() as connection:
-        connection.execute("UPDATE attendees SET map_x = NULL, map_y = NULL WHERE id = ?", (CURRENT_USER_ID,))
+        current_profile = ensure_user_profile(connection, user)
+        connection.execute("UPDATE attendees SET map_x = NULL, map_y = NULL WHERE id = ?", (current_profile["id"],))
         return {"location": None}
