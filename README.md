@@ -2,6 +2,29 @@
 
 A live networking companion for events. Attendees can discover people who are checked in, share profile details, connect, and choose a spot on the room map.
 
+## Why I Built This
+
+I deliberately chose to build a web application in a domain I had little to no prior experience in, particularly HTML, CSS, and JavaScript. The idea was to step outside my existing technical comfort zone and explore how effectively I could use AI coding agents such as Codex to learn unfamiliar technologies and turn an idea into a working product.
+
+I approached LinkUp as a hands-on, learn-as-we-build experiment. Rather than treating AI-generated code as a black box, I used the project to ask questions, understand implementations, troubleshoot errors, and gradually learn how the different components of an application fit together.
+
+What began as a fun side project became an opportunity to explore how clear instructions, relevant context, and iterative feedback can make software development more effective while keeping me involved in the decisions.
+
+## Learning Outcomes
+
+- **Prompt Engineering:** Writing clear prompts, providing relevant context, sharing errors and screenshots, and refining requests based on application behaviour.
+- **AI-Assisted Debugging:** Using coding agents to identify errors, investigate possible solutions, and iterate on implementations.
+- **Understanding Application Architecture:** Learning how a website's frontend, backend API, authentication, and database interact.
+- **End-to-End Development:** Experiencing the process of taking an idea from initial implementation and local execution to deployment, including the limitations and trade-offs of free hosting.
+
+## The Bigger Picture
+
+LinkUp is primarily a *learn-as-we-build* experiment. The objective isn't to master web development as an independent technical skill, but to develop fluency in working with AI coding agents.
+
+I wanted to explore how effectively I could communicate ideas to AI, provide the right context, evaluate its output, and guide it through an iterative development process to produce a functional product.
+
+In essence, this project is an exploration of a changing approach to software development: **learning to build with AI, rather than simply learning to code.**
+
 ## How sign-in works
 
 - Supabase Auth handles email/password signup, email confirmation, login, and logout. LinkUp never saves or sends passwords to its own API.
