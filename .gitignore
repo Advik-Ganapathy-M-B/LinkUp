@@ -218,3 +218,7 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Local LinkUp demo database
+linkup.sqlite3
+linkup.sqlite3-journal

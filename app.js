@@ -1,66 +1,20 @@
-// Sample profiles. The attendee with id "you" is the signed-in demo user.
-const attendees = [
-  {
-    id: 'maya', name: 'Maya Chen', role: 'UX designer · 2nd year',
-    note: 'Always up for swapping ideas about making things easier to use.',
-    interests: ['Design', 'Startups'], connections: ['arjun', 'nina', 'leo'], color: 'peach', education: 'Human-centred design, 2nd year',
-    funFact: 'I can fold a fitted sheet neatly on the first try.',
-    lookingToMeet: 'People building thoughtful products and accessible experiences.', linkedin: '', photo: '',
-  },
-  {
-    id: 'arjun', name: 'Arjun Rao', role: 'CS student · 3rd year',
-    note: 'Building a tiny app to help people find pickup games on campus.',
-    interests: ['Coding', 'Startups'], connections: ['maya', 'dev'], color: 'blue', education: 'Computer science, 3rd year',
-    funFact: 'I once built a PC from parts I found in a campus swap group.',
-    lookingToMeet: 'People who enjoy turning small ideas into useful apps.', linkedin: '', photo: '',
-  },
-  {
-    id: 'zara', name: 'Zara Patel', role: 'Film society · 2nd year',
-    note: 'Looking for people to make a short film with this semester.',
-    interests: ['Film', 'Creative'], connections: ['nina'], color: 'lilac', education: 'Media studies, 2nd year',
-    funFact: 'I keep a list of interesting opening scenes from movies.',
-    lookingToMeet: 'Writers, actors, and anyone curious about making short films.', linkedin: '', photo: '',
-  },
-  {
-    id: 'leo', name: 'Leo Martin', role: 'Product intern · 4th year',
-    note: 'Happy to chat about getting your first internship in tech.',
-    interests: ['Startups', 'Career'], connections: ['maya', 'dev'], color: 'yellow', education: 'Business and information systems, 4th year',
-    funFact: 'I collect maps from cities I have visited.',
-    lookingToMeet: 'Students exploring product roles or preparing for internships.', linkedin: '', photo: '',
-  },
-  {
-    id: 'nina', name: 'Nina Okafor', role: 'Illustrator · 1st year',
-    note: 'Sketchbook is always open. Currently learning motion design.',
-    interests: ['Design', 'Creative'], connections: ['maya', 'zara'], color: 'rose', education: 'Visual communication, 1st year',
-    funFact: 'I draw a tiny character in the corner of every notebook.',
-    lookingToMeet: 'Artists who want to share work and learn motion design together.', linkedin: '', photo: '',
-  },
-  {
-    id: 'dev', name: 'Dev Shah', role: 'Robotics club · 3rd year',
-    note: 'Prototyping a low-cost robot arm and looking for collaborators.',
-    interests: ['Coding', 'Robotics'], connections: ['arjun', 'leo'], color: 'mint', education: 'Mechatronics, 3rd year',
-    funFact: 'My first robot was made from cardboard and an old toy motor.',
-    lookingToMeet: 'People into robotics, prototyping, or learning by building.', linkedin: '', photo: '',
-  },
-  {
-    id: 'you', name: 'Advik Ganapathy', role: 'AI/ML Enthusiast · 1st year',
-    note: 'Prototyping a walking spider robot',
-    interests: ['Coding', 'Music'], connections: [], color: 'peach', education: '',
-    funFact: '', lookingToMeet: '', linkedin: '', photo: '',
-  },
-];
-
 const CURRENT_USER_ID = 'you';
-const PROFILE_STORAGE_KEY = 'linkup-current-profile';
-const LOCATION_STORAGE_KEY = 'linkup-room-pin';
-const CHECK_IN_STORAGE_KEY = 'linkup-checked-in';
-const CONNECTIONS_STORAGE_KEY = 'linkup-connections';
+
+let attendees = [];
+let currentUser = null;
+let currentConnections = new Set();
+let selectedInterest = 'All';
+let profileReturnScroll = { x: 0, y: 0 };
+let profileOpenScroll = { x: 0, y: 0 };
+let profileReturnCardId = '';
+let lastDataSnapshot = '';
 
 const grid = document.querySelector('#attendee-grid');
 const searchInput = document.querySelector('#search-input');
 const filters = document.querySelector('#filters');
 const count = document.querySelector('#attendee-count');
 const emptyState = document.querySelector('#empty-state');
+const apiError = document.querySelector('#api-error');
 const roomMap = document.querySelector('#room-map');
 const yourPin = document.querySelector('#your-pin');
 const locationStatus = document.querySelector('#location-status');
@@ -69,31 +23,42 @@ const checkInToggle = document.querySelector('#check-in-toggle');
 const profileDialog = document.querySelector('#profile-dialog');
 const profileView = document.querySelector('#profile-view');
 const profileEditForm = document.querySelector('#profile-edit-form');
-let selectedInterest = 'All';
-let isCheckedIn = localStorage.getItem(CHECK_IN_STORAGE_KEY) !== 'false';
-let currentConnections = new Set();
-let profileReturnScroll = { x: 0, y: 0 };
-let profileOpenScroll = { x: 0, y: 0 };
-let profileReturnCardId = '';
 
-// Load saved profile edits for the signed-in demo user, if there are any.
-const savedProfile = localStorage.getItem(PROFILE_STORAGE_KEY);
-if (savedProfile) {
-  try {
-    Object.assign(attendees.find((person) => person.id === CURRENT_USER_ID), JSON.parse(savedProfile));
-  } catch {
-    localStorage.removeItem(PROFILE_STORAGE_KEY);
+async function apiRequest(path, options = {}) {
+  const response = await fetch(path, {
+    ...options,
+    headers: { 'Content-Type': 'application/json', ...options.headers },
+  });
+  if (!response.ok) {
+    const problem = await response.json().catch(() => ({}));
+    throw new Error(problem.detail || `Request failed (${response.status})`);
   }
+  return response.json();
 }
 
-const savedConnections = localStorage.getItem(CONNECTIONS_STORAGE_KEY);
-if (savedConnections) {
-  try {
-    const connectionIds = JSON.parse(savedConnections);
-    if (Array.isArray(connectionIds)) currentConnections = new Set(connectionIds);
-  } catch {
-    localStorage.removeItem(CONNECTIONS_STORAGE_KEY);
+function showApiError(message) {
+  apiError.textContent = message;
+  apiError.hidden = false;
+}
+
+async function loadData() {
+  const [loadedAttendees, loadedUser] = await Promise.all([
+    apiRequest('/api/attendees'),
+    apiRequest('/api/me'),
+  ]);
+  const snapshot = JSON.stringify([loadedAttendees, loadedUser]);
+  const dataChanged = snapshot !== lastDataSnapshot;
+  lastDataSnapshot = snapshot;
+  attendees = loadedAttendees;
+  currentUser = loadedUser;
+  currentConnections = new Set(currentUser.connections);
+  apiError.hidden = true;
+  if (dataChanged) {
+    renderFilters();
+    renderAttendees();
+    renderMapPins();
   }
+  updateCheckInUI();
 }
 
 function escapeHTML(value = '') {
@@ -125,84 +90,67 @@ function getMutualConnections(person) {
     .filter(Boolean);
 }
 
-function toggleConnection(personId) {
-  const pagePosition = { x: window.scrollX, y: window.scrollY };
-  if (currentConnections.has(personId)) {
-    currentConnections.delete(personId);
-  } else {
-    currentConnections.add(personId);
-  }
-  localStorage.setItem(CONNECTIONS_STORAGE_KEY, JSON.stringify([...currentConnections]));
-  renderAttendees();
-  requestAnimationFrame(() => {
-    window.scrollTo(pagePosition.x, pagePosition.y);
-    const updatedButton = [...grid.querySelectorAll('[data-connect-id]')]
-      .find((button) => button.dataset.connectId === personId);
-    updatedButton?.focus({ preventScroll: true });
-  });
-}
-
 function showPin(x, y) {
   yourPin.style.left = `${x}%`;
   yourPin.style.top = `${y}%`;
   yourPin.hidden = false;
-  locationStatus.textContent = 'Your pin is visible on this device';
-  clearLocationButton.hidden = false;
 }
 
 function updateCheckInUI() {
-  checkInToggle.textContent = isCheckedIn ? 'Check out' : 'Check in';
-  if (!isCheckedIn) {
+  checkInToggle.textContent = currentUser?.checkedIn ? 'Check out' : 'Check in';
+  if (!currentUser?.checkedIn) {
     yourPin.hidden = true;
     clearLocationButton.hidden = true;
     locationStatus.textContent = 'Checked out · your pin is hidden';
-  } else if (yourPin.hidden) {
+  } else if (currentUser.location) {
+    showPin(currentUser.location.x, currentUser.location.y);
+    locationStatus.textContent = 'Your pin is shared with attendees';
+    clearLocationButton.hidden = false;
+  } else {
+    yourPin.hidden = true;
+    clearLocationButton.hidden = true;
     locationStatus.textContent = 'Checked in · tap the map to add your spot';
   }
 }
 
-// Restore the pin only when this person is still checked in.
-const savedLocation = localStorage.getItem(LOCATION_STORAGE_KEY);
-if (savedLocation && isCheckedIn) {
-  try {
-    const { x, y } = JSON.parse(savedLocation);
-    showPin(x, y);
-  } catch {
-    localStorage.removeItem(LOCATION_STORAGE_KEY);
-    yourPin.hidden = true;
+function renderMapPins() {
+  roomMap.querySelectorAll('.other-map-pin').forEach((pin) => pin.remove());
+  for (const person of attendees) {
+    if (person.id === CURRENT_USER_ID || !person.checkedIn || !person.location) continue;
+    const pin = document.createElement('button');
+    pin.type = 'button';
+    pin.className = `other-map-pin avatar ${person.color}`;
+    pin.style.left = `${person.location.x}%`;
+    pin.style.top = `${person.location.y}%`;
+    pin.textContent = initialsFor(person.name);
+    pin.title = `${person.name} · view profile`;
+    pin.setAttribute('aria-label', `View ${person.name}'s profile`);
+    pin.addEventListener('click', (event) => {
+      event.stopPropagation();
+      openProfile(person, null);
+    });
+    roomMap.appendChild(pin);
   }
-} else {
-  yourPin.hidden = true;
 }
 
-checkInToggle.addEventListener('click', () => {
-  isCheckedIn = !isCheckedIn;
-  localStorage.setItem(CHECK_IN_STORAGE_KEY, String(isCheckedIn));
-  if (!isCheckedIn) {
-    // Remove the location when checking out so an old spot is not left behind.
-    localStorage.removeItem(LOCATION_STORAGE_KEY);
+async function changeConnection(personId) {
+  const pagePosition = { x: window.scrollX, y: window.scrollY };
+  const isConnected = currentConnections.has(personId);
+  try {
+    await apiRequest(`/api/connections/${encodeURIComponent(personId)}`, {
+      method: isConnected ? 'DELETE' : 'PUT',
+    });
+    await loadData();
+    requestAnimationFrame(() => {
+      window.scrollTo(pagePosition.x, pagePosition.y);
+      const updatedButton = [...grid.querySelectorAll('[data-connect-id]')]
+        .find((button) => button.dataset.connectId === personId);
+      updatedButton?.focus({ preventScroll: true });
+    });
+  } catch (error) {
+    showApiError(`Could not update connection: ${error.message}`);
   }
-  updateCheckInUI();
-});
-
-roomMap.addEventListener('click', (event) => {
-  if (!isCheckedIn) {
-    locationStatus.textContent = 'Check in before placing your pin';
-    return;
-  }
-  const bounds = roomMap.getBoundingClientRect();
-  const x = Math.min(96, Math.max(4, ((event.clientX - bounds.left) / bounds.width) * 100));
-  const y = Math.min(91, Math.max(22, ((event.clientY - bounds.top) / bounds.height) * 100));
-  showPin(x, y);
-  localStorage.setItem(LOCATION_STORAGE_KEY, JSON.stringify({ x, y }));
-});
-
-clearLocationButton.addEventListener('click', () => {
-  localStorage.removeItem(LOCATION_STORAGE_KEY);
-  yourPin.hidden = true;
-  clearLocationButton.hidden = true;
-  locationStatus.textContent = 'Checked in · tap the map to add your spot';
-});
+}
 
 function renderFilters() {
   const topics = [...new Set(attendees.flatMap((person) => person.interests))]
@@ -219,9 +167,9 @@ function renderAttendees() {
   const query = searchInput.value.trim().toLowerCase();
   let visibleAttendees = attendees.filter((person) => {
     const mutualCount = getMutualConnections(person).length;
-    const matchesInterest = selectedInterest === 'All'
-      || (selectedInterest === 'Mutuals' ? mutualCount > 0 : person.interests.includes(selectedInterest));
-    const searchableText = `${person.name} ${person.role} ${person.note} ${person.interests.join(' ')}`.toLowerCase();
+    const matchesInterest = person.checkedIn && (selectedInterest === 'All'
+      || (selectedInterest === 'Mutuals' ? mutualCount > 0 : person.interests.includes(selectedInterest)));
+    const searchableText = `${person.name} ${person.role} ${person.note} ${person.education} ${person.funFact} ${person.lookingToMeet} ${person.interests.join(' ')}`.toLowerCase();
     return matchesInterest && searchableText.includes(query);
   });
 
@@ -298,29 +246,63 @@ function renderProfile(person) {
 function openProfile(person, card) {
   profileReturnScroll = { x: window.scrollX, y: window.scrollY };
   profileReturnCardId = person.id;
-  card.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'auto' });
+  if (card) card.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'auto' });
   profileOpenScroll = { x: window.scrollX, y: window.scrollY };
   renderProfile(person);
   profileEditForm.hidden = true;
   profileView.hidden = false;
   profileDialog.showModal();
-  // Keep the clicked card centered behind the modal while it is open.
   requestAnimationFrame(() => window.scrollTo(profileOpenScroll.x, profileOpenScroll.y));
 }
 
 function startProfileEdit() {
-  const person = attendees.find((attendee) => attendee.id === CURRENT_USER_ID);
   for (const field of profileEditForm.elements) {
-    if (field.name && person[field.name] !== undefined) field.value = person[field.name];
+    if (field.name && currentUser[field.name] !== undefined) field.value = currentUser[field.name];
   }
   profileView.hidden = true;
   profileEditForm.hidden = false;
 }
 
+checkInToggle.addEventListener('click', async () => {
+  const endpoint = currentUser?.checkedIn ? '/api/check-out' : '/api/check-in';
+  try {
+    await apiRequest(endpoint, { method: 'POST' });
+    await loadData();
+  } catch (error) {
+    showApiError(`Could not update check-in: ${error.message}`);
+  }
+});
+
+roomMap.addEventListener('click', async (event) => {
+  if (event.target.closest('.other-map-pin, #your-pin')) return;
+  if (!currentUser?.checkedIn) {
+    locationStatus.textContent = 'Check in before placing your pin';
+    return;
+  }
+  const bounds = roomMap.getBoundingClientRect();
+  const x = Math.min(96, Math.max(4, ((event.clientX - bounds.left) / bounds.width) * 100));
+  const y = Math.min(91, Math.max(22, ((event.clientY - bounds.top) / bounds.height) * 100));
+  try {
+    await apiRequest('/api/location', { method: 'PUT', body: JSON.stringify({ x, y }) });
+    await loadData();
+  } catch (error) {
+    showApiError(`Could not save your location: ${error.message}`);
+  }
+});
+
+clearLocationButton.addEventListener('click', async () => {
+  try {
+    await apiRequest('/api/location', { method: 'DELETE' });
+    await loadData();
+  } catch (error) {
+    showApiError(`Could not clear your location: ${error.message}`);
+  }
+});
+
 grid.addEventListener('click', (event) => {
   const connectButton = event.target.closest('[data-connect-id]');
   if (connectButton) {
-    toggleConnection(connectButton.dataset.connectId);
+    changeConnection(connectButton.dataset.connectId);
     return;
   }
   const card = event.target.closest('[data-person-id]');
@@ -342,16 +324,18 @@ profileView.addEventListener('click', (event) => {
   if (event.target.closest('#edit-own-profile')) startProfileEdit();
 });
 
-profileEditForm.addEventListener('submit', (event) => {
+profileEditForm.addEventListener('submit', async (event) => {
   event.preventDefault();
-  const person = attendees.find((attendee) => attendee.id === CURRENT_USER_ID);
   const profileChanges = Object.fromEntries(new FormData(profileEditForm).entries());
-  Object.assign(person, profileChanges);
-  localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(profileChanges));
-  renderAttendees();
-  renderProfile(person);
-  profileEditForm.hidden = true;
-  profileView.hidden = false;
+  try {
+    currentUser = await apiRequest('/api/me', { method: 'PUT', body: JSON.stringify(profileChanges) });
+    await loadData();
+    renderProfile(currentUser);
+    profileEditForm.hidden = true;
+    profileView.hidden = false;
+  } catch (error) {
+    showApiError(`Could not save your profile: ${error.message}`);
+  }
 });
 
 document.querySelector('#cancel-profile-edit').addEventListener('click', () => {
@@ -361,7 +345,6 @@ document.querySelector('#cancel-profile-edit').addEventListener('click', () => {
 
 document.querySelector('#close-profile-dialog').addEventListener('click', () => profileDialog.close());
 profileDialog.addEventListener('close', () => {
-  // Wait for the browser's dialog focus restoration, then restore the old view.
   requestAnimationFrame(() => {
     const returnCard = [...grid.querySelectorAll('[data-person-id]')]
       .find((card) => card.dataset.personId === profileReturnCardId);
@@ -369,6 +352,7 @@ profileDialog.addEventListener('close', () => {
     requestAnimationFrame(() => window.scrollTo(profileReturnScroll.x, profileReturnScroll.y));
   });
 });
+
 filters.addEventListener('click', (event) => {
   const button = event.target.closest('button[data-interest]');
   if (!button) return;
@@ -379,6 +363,13 @@ filters.addEventListener('click', (event) => {
 
 searchInput.addEventListener('input', renderAttendees);
 
-renderFilters();
-renderAttendees();
-updateCheckInUI();
+loadData().catch((error) => {
+  showApiError(`LinkUp could not reach its backend. Start the server, then refresh. Details: ${error.message}`);
+});
+
+// Check for updates from other browsers every five seconds while the profile dialog is closed.
+window.setInterval(() => {
+  if (!profileDialog.open) {
+    loadData().catch((error) => showApiError(`Could not refresh event data: ${error.message}`));
+  }
+}, 5000);
