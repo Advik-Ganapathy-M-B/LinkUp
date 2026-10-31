@@ -32,6 +32,7 @@
             <p class="location-instructions">Tap the map to place or move your pin. This is a spot you choose; LinkUp does not use your phone’s GPS.</p>
           </div>
           <div class="location-actions">
+            <button id="check-in-toggle" class="check-in-toggle" type="button">Check out</button>
             <span id="location-status" class="location-status" aria-live="polite">No pin placed yet</span>
             <button id="clear-location" class="clear-location" type="button" hidden>Clear pin</button>
           </div>
@@ -70,6 +71,26 @@
         <p class="empty-state" id="empty-state" hidden>No one matches that search yet. Try another interest or name.</p>
       </section>
     </main>
+
+    <dialog id="profile-dialog" class="profile-dialog" aria-label="Attendee profile">
+      <button id="close-profile-dialog" class="dialog-close" type="button" aria-label="Close profile">×</button>
+      <div id="profile-view"></div>
+      <form id="profile-edit-form" hidden>
+        <p class="eyebrow">MAKE IT YOURS</p>
+        <h2>Edit your profile</h2>
+        <label>Your name<input name="name" required maxlength="60" /></label>
+        <label>What do you do?<input name="role" maxlength="100" /></label>
+        <label>Education or background<input name="education" maxlength="120" /></label>
+        <label>A fun fact<textarea name="funFact" rows="2" maxlength="240"></textarea></label>
+        <label>People you’d like to meet<textarea name="lookingToMeet" rows="2" maxlength="240"></textarea></label>
+        <label>LinkedIn profile URL<input name="linkedin" type="url" placeholder="https://www.linkedin.com/in/…" /></label>
+        <label>Photo URL (optional)<input name="photo" type="url" placeholder="https://…" /></label>
+        <div class="profile-form-actions">
+          <button id="cancel-profile-edit" class="secondary-button" type="button">Cancel</button>
+          <button class="primary-button" type="submit">Save profile</button>
+        </div>
+      </form>
+    </dialog>
 
     <footer class="page-footer">A little context makes saying hello easier. <span>✳</span></footer>
     <script src="app.js"></script>
