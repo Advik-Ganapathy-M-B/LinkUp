@@ -2,6 +2,15 @@
 
 A live networking companion for events. Attendees can discover people who are checked in, share profile details, connect, and choose a spot on the room map.
 
+## Features
+
+- **Attendee discovery:** Browse people checked in to the event; search names, interests, and profile details; filter by interest or mutual connections.
+- **Attendee profiles:** View and edit profile details such as role, education, fun facts, interests, networking goals, and an optional LinkedIn URL or photo URL.
+- **Conversation starters:** Open another attendee's profile to see up to three suggested openers based on shared interests, overlapping networking-goal terms, or shared background details. Each suggestion explains why it may be relevant. If no overlap is found, suggestions use details the attendee chose to share.
+- **Connection requests:** Send a request; the recipient can accept or decline it. Accepted connections appear for both attendees.
+- **Check-in and room map:** Check in or out and choose a spot on the event's room map. The pin is manually placed; LinkUp does not use GPS.
+- **Sign-in:** Supabase Auth provides email/password accounts. FastAPI protects attendee and connection APIs using the signed-in user's access token.
+
 ## Why I Built This
 
 I deliberately chose to build a web application in a domain I had little to no prior experience in, particularly HTML, CSS, and JavaScript. The idea was to step outside my existing technical comfort zone and explore how effectively I could use AI coding agents such as Codex to learn unfamiliar technologies and turn an idea into a working product.
@@ -16,14 +25,6 @@ What began as a fun side project became an opportunity to explore how clear inst
 - **AI-Assisted Debugging:** Using coding agents to identify errors, investigate possible solutions, and iterate on implementations.
 - **Understanding Application Architecture:** Learning how a website's frontend, backend API, authentication, and database interact.
 - **End-to-End Development:** Experiencing the process of taking an idea from initial implementation and local execution to deployment, including the limitations and trade-offs of free hosting.
-
-## The Bigger Picture
-
-LinkUp is primarily a *learn-as-we-build* experiment. The objective isn't to master web development as an independent technical skill, but to develop fluency in working with AI coding agents.
-
-I wanted to explore how effectively I could communicate ideas to AI, provide the right context, evaluate its output, and guide it through an iterative development process to produce a functional product.
-
-In essence, this project is an exploration of a changing approach to software development: **learning to build with AI, rather than simply learning to code.**
 
 ## How sign-in works
 
@@ -40,23 +41,32 @@ In essence, this project is an exploration of a changing approach to software de
 
 ## Configure Supabase
 
-1. In the Supabase dashboard, create a project and find its Project URL and publishable key in the API settings.
+1. In the Supabase dashboard, create a project, enable Email authentication, and find its Project URL and publishable key in the API settings.
 2. Copy `.env.example` to `.env` in the project root.
-3. Put the Project URL and publishable key in both sets of variables. The `VITE_` versions are used by the browser; the unprefixed versions are read by Python. The publishable key is intended for browser use. Never place a Supabase secret or service-role key in `.env` variables beginning with `VITE_` or in frontend code.
-4. In Supabase Auth URL settings, set the Site URL to `http://localhost:5173` for local development and add that URL to the allowed redirect URLs. For a deployed site, set the production URL too.
-5. Email confirmation may be enabled for signup. Configure Supabase SMTP for reliable confirmation emails before inviting real users.
+3. Fill in the four variables in `.env`:
+
+   ```dotenv
+   VITE_SUPABASE_URL=https://your-project-id.supabase.co
+   VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_replace_with_your_project_key
+   SUPABASE_URL=https://your-project-id.supabase.co
+   SUPABASE_PUBLISHABLE_KEY=sb_publishable_replace_with_your_project_key
+   ```
+
+   Use your project URL and publishable key in both pairs. The `VITE_` variables are embedded in the frontend at build time; the unprefixed variables are read by Python. A publishable key is intended for browser use. Never put a Supabase secret or service-role key in a `VITE_` variable or frontend code.
+4. In Supabase **Authentication > URL Configuration**, add `http://localhost:5173` to the allowed redirect URLs. For deployment, also add the Render URL and set the Site URL to the URL you want Supabase confirmation links to return to.
+5. If email confirmation is enabled, configure Supabase SMTP for reliable confirmation emails before inviting real users.
 
 `.env` is ignored by Git. Do not commit it or share its contents.
 
 ## Run locally
 
-Install the frontend dependencies once:
+From the project root, install the frontend dependencies:
 
 ```powershell
 npm install
 ```
 
-In one PowerShell window, set up and start FastAPI:
+In one PowerShell window, create and activate a Python environment, install the backend dependencies, and start FastAPI:
 
 ```powershell
 py -m venv .venv
@@ -73,7 +83,17 @@ npm run dev
 
 Open <http://localhost:5173>. Vite serves the frontend and forwards `/api` requests to FastAPI at port 8000. API documentation is available at <http://127.0.0.1:8000/docs>.
 
-The first API run creates `linkup.sqlite3` and adds fictional sample attendees. The database is local and ignored by Git. The attendee profile for a new Supabase account is created after the first authenticated API request.
+The first API run creates `linkup.sqlite3` and adds fictional sample attendees. The database is local and ignored by Git. LinkUp creates an attendee profile for a new Supabase account after that account makes its first authenticated API request.
+
+## Tests
+
+Run the built-in Node.js tests from the project root:
+
+```powershell
+npm test
+```
+
+The tests cover case-insensitive shared-interest suggestions, profiles with different interests, shared networking goals and background details, and profiles without enough information to suggest an opener. They use Node's built-in test runner and add no testing dependency.
 
 ## Build and serve the frontend with FastAPI
 
@@ -86,15 +106,16 @@ FastAPI serves the generated `dist` website and its API from one origin. Set the
 
 ## Deploy a free public demo on Render
 
-The repository includes a Dockerfile and `render.yaml` for a free Render web service. Render gives the app a stable `onrender.com` URL. Free services sleep after 15 minutes without requests and may take about a minute to wake up. The free filesystem is temporary, so fictional attendee/profile/connection data can reset when the service sleeps or restarts. This setup is for a demo, not real attendee data.
+The deployed demo runs as a Render Docker web service. Render gives the app a stable `onrender.com` URL. Free services sleep after 15 minutes without requests and may take about a minute to wake up. The free filesystem is temporary, so fictional attendee/profile/connection data can reset when the service sleeps or restarts. This setup is for a demo, not real attendee data.
 
-1. Commit and push the project to GitHub. Confirm `.env` is ignored and not included in the commit.
-2. In Render, choose **New > Blueprint** and connect this GitHub repository. Render reads `render.yaml` and shows the planned service.
-3. Keep the service on the **Free** plan. Add the four Supabase variables Render requests: `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `VITE_SUPABASE_URL`, and `VITE_SUPABASE_PUBLISHABLE_KEY`. Use your project URL and publishable key; never use a Supabase secret or service-role key.
-4. Create the Blueprint. When deployment finishes, Render displays the stable public URL.
-5. In Supabase Auth URL settings, add the Render URL to the allowed redirect URLs. You can retain `http://localhost:5173` for local development.
+1. Push the repository to GitHub and confirm `.env` is ignored and not committed.
+2. In Render, choose **New > Web Service** and connect the repository and branch you want to deploy.
+3. Choose **Docker** as the runtime, keep the root directory blank, select the **Free** plan, and do not attach a disk. The Dockerfile builds the frontend and starts FastAPI; no separate build or start command is needed.
+4. Add `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `VITE_SUPABASE_URL`, and `VITE_SUPABASE_PUBLISHABLE_KEY` in Render's environment variables. Use your project URL and publishable key for each pair. Do not use a Supabase secret or service-role key.
+5. Create the service. When deployment finishes, Render displays its public URL.
+6. In Supabase **Authentication > URL Configuration**, add the Render URL to the allowed redirect URLs. Keep `http://localhost:5173` there for local development.
 
-Do not switch to a paid plan or add paid storage. Render's free service can sleep and its local SQLite data can reset, which is acceptable for fictional demo data.
+`render.yaml` contains the same free-service configuration for creating a Render Blueprint instead. Do not create a second service if the web service already exists. Do not switch to a paid plan or add paid storage. Use fictional attendee data because Render's free service can sleep and its local SQLite data can reset.
 
 ## Deployment architecture
 
@@ -107,6 +128,7 @@ For a real event or multiple API instances, keep Supabase Auth and move attendee
 - Attendee profile details, sample connections, check-in state, and room-map pins are stored in SQLite.
 - Profile edits, connections, check-in/out, and map pins persist after refreshing the page.
 - Connections use requests: the recipient can accept or decline, and both attendees become connected after acceptance.
+- Conversation starters are generated in the frontend from existing profile fields; no conversation-starter API or external AI service is used.
 - The map displays checked-in attendees who have shared a pin.
 - Sample attendee cards are examples; use two signed-in test accounts to exercise sending and accepting a request end to end.
 - The page refreshes event data every five seconds while visible, and avoids overlapping refreshes.
