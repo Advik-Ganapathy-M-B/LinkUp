@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { buildConversationStarters } from './conversation-starters.js';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabasePublishableKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
@@ -336,6 +337,27 @@ function renderProfile(person) {
     <section class="profile-fact"><h3>${label}</h3><p>${value ? escapeHTML(value) : 'Not shared yet'}</p></section>
   `;
   const mutualConnections = getMutualConnections(person);
+  const conversationStarters = person.id === currentUser?.id
+    ? []
+    : buildConversationStarters(currentUser, person);
+  const conversationStartersSection = person.id === currentUser?.id ? '' : `
+    <section class="conversation-starters" aria-labelledby="conversation-starters-title">
+      <div class="conversation-starters-header">
+        <h3 id="conversation-starters-title">Conversation starters</h3>
+        <span>Based on shared profile details</span>
+      </div>
+      ${conversationStarters.length ? `
+        <ol class="starter-list">
+          ${conversationStarters.map((starter) => `
+            <li class="starter-card">
+              <p class="starter-prompt">“${escapeHTML(starter.prompt)}”</p>
+              <p class="starter-reason"><strong>Why it fits:</strong> ${escapeHTML(starter.reason)}</p>
+            </li>
+          `).join('')}
+        </ol>
+      ` : '<p class="starter-empty">There is not enough shared profile detail yet. Ask what brought them to this event.</p>'}
+    </section>
+  `;
 
   profileView.innerHTML = `
     <div class="profile-heading">
@@ -343,6 +365,7 @@ function renderProfile(person) {
       <div><h2>${escapeHTML(person.name)}</h2><p>${escapeHTML(person.role)}</p></div>
     </div>
     <div class="profile-facts">
+      ${conversationStartersSection}
       ${profileField('About', person.note)}
       ${profileField('Education or background', person.education)}
       ${profileField('Fun fact', person.funFact)}

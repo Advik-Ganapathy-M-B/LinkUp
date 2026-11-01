@@ -115,6 +115,16 @@ kbd { padding: 2px 7px; border: 1px solid #e3e5df; border-radius: 4px; color: #8
 .profile-heading h2 { margin: 0 0 4px; font-size: 23px; }
 .profile-heading p { margin: 0; color: var(--muted); font-size: 12px; }
 .profile-facts { display: grid; gap: 14px; padding: 20px 0; }
+.conversation-starters { padding: 14px; border: 1px solid #d9e5d9; border-radius: 10px; background: #f2f6f0; }
+.conversation-starters-header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 5px 10px; margin-bottom: 10px; }
+.conversation-starters-header h3 { margin: 0; color: #344b39; font: 700 14px Manrope, sans-serif; }
+.conversation-starters-header > span { color: var(--muted); font-size: 10px; }
+.starter-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.starter-card { padding: 10px 11px; border: 1px solid #e3e9e0; border-radius: 8px; background: #fff; }
+.starter-prompt { margin: 0; color: #344b39; font-size: 12px; font-weight: 600; line-height: 1.5; }
+.starter-reason { margin: 5px 0 0; color: var(--muted); font-size: 10px; line-height: 1.45; }
+.starter-reason strong { color: #596b59; }
+.starter-empty { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
 .profile-fact h3 { margin: 0 0 4px; color: #748074; font-size: 9px; letter-spacing: 1px; text-transform: uppercase; }
 .profile-fact p { margin: 0; color: #394139; font-size: 13px; line-height: 1.55; white-space: pre-wrap; }
 .profile-link { color: var(--green); font-size: 12px; font-weight: 700; }
